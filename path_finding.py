@@ -234,12 +234,40 @@ class StaticPathPlanner:
                 obs["units_position"][team_id][unit_idx][1].item()
             )
             
-            # Compute path
-            path = list(self.astar.astar(unit_pos, target))
+            # Debug: Check if target is valid
+            tx, ty = target
+            if tx < 0 or tx >= self.map_width or ty < 0 or ty >= self.map_height:
+                print(f"Invalid target position: {target}")
+                self.paths[unit_idx] = [unit_pos]
+                continue
             
-            # Store path if found
-            if path:
-                self.paths[unit_idx] = path
+            # Debug: Check if target is visible
+            if not obs["sensor_mask"][ty, tx]:
+                print(f"Target {target} not visible in sensor mask")
+            
+            # Debug: Check if target is on obstacle
+            if self.astar.cost_map[ty, tx] == float('inf'):
+                print(f"Target {target} is on an obstacle")
+                # Find closest non-obstacle position
+                target = self._find_closest_walkable_position(target, self.astar.cost_map)
+                if target is None:
+                    print(f"No walkable position found near target")
+                    self.paths[unit_idx] = [unit_pos]
+                    continue
+            
+            # Compute path - astar.astar() may return None if no path found
+            path_result = self.astar.astar(unit_pos, target)
+            
+            # Check if path was found before converting to list
+            if path_result is not None:
+                path = list(path_result)
+                if path:  # Make sure the path is not empty
+                    self.paths[unit_idx] = path
+            else:
+                print(f"Path not found for unit {unit_idx} from {unit_pos} to {target}")
+                # If no path found, store just the current position
+                # This will make the unit stay put until a valid path is found
+                self.paths[unit_idx] = [unit_pos]
         
         return self.paths
     
@@ -299,6 +327,8 @@ class StaticPathPlanner:
         
         Args:
             obs: Observation from the environment
+            player_id: ID of the player
+            
         Returns:
             Dictionary mapping unit indices to target positions
         """
@@ -315,129 +345,105 @@ class StaticPathPlanner:
                 )
                 unit_energy = obs["units_energy"][team_id][i][0]
                 active_units.append((i, unit_pos, unit_energy))
-        
-        # Prioritize relic nodes
-        relic_targets = []
+    
+        # Find visible relic nodes (highest priority)
+        visible_relics = []
         for i in range(len(obs["relic_nodes_mask"])):
             if obs["relic_nodes_mask"][i]:
                 relic_pos = (
                     obs["relic_nodes"][i][0].item(),
                     obs["relic_nodes"][i][1].item()
                 )
-                if relic_pos[0] >= 0 and relic_pos[1] >= 0:  # Valid coordinates
-                    relic_targets.append(relic_pos)
+                # Check if relic is visible and has valid coordinates
+                if (relic_pos[0] >= 0 and relic_pos[1] >= 0 and 
+                    obs["sensor_mask"][relic_pos[1], relic_pos[0]]):
+                    visible_relics.append(relic_pos)
         
-        # Find high energy areas
+        # Find visible energy nodes (second priority)
+        visible_energy = []
         energy_map = np.array(obs["map_features_energy"])
-        high_energy_targets = []
         
-        # Find positions with energy > 0 that we can see
         for y in range(self.map_height):
             for x in range(self.map_width):
-                if (obs["sensor_mask"][y, x] and
-                    energy_map[y, x] > 0 and
-                    obs["map_features_tile_type"][y, x] != 2):  # Not an asteroid
-                    high_energy_targets.append((x, y, energy_map[y, x]))
+                # Check if tile is visible, has energy, and is not an asteroid
+                if (obs["sensor_mask"][y, x] and energy_map[y, x] > 0 and
+                    obs["map_features_tile_type"][y, x] != 2):
+                    visible_energy.append((x, y, energy_map[y, x]))
+    
+        # Sort energy targets by value
+        visible_energy.sort(key=lambda x: x[2], reverse=True)
         
-        # Sort high energy targets by energy value (highest first)
-        high_energy_targets.sort(key=lambda x: x[2], reverse=True)
+        # Determine enemy spawn location for exploration
+        enemy_spawn = (
+            (self.map_width - 1, self.map_height - 1) 
+            if team_id == 0 
+            else (0, 0)
+        )
         
-        # Only keep the top N high energy targets
-        max_energy_targets = 5
-        high_energy_targets = [(x, y) for x, y, _ in high_energy_targets[:max_energy_targets]]
-        
-        # Exploration targets (corners and center)
-        exploration_targets = []
-        center = (self.map_width // 2, self.map_height // 2)
-        corners = [
-            (2, 2),
-            (2, self.map_height - 3),
-            (self.map_width - 3, 2),
-            (self.map_width - 3, self.map_height - 3)
-        ]
-        exploration_targets.extend(corners)
-        exploration_targets.append(center)
-        
-        # Assign targets based on priority: relic nodes > high energy > exploration
+        # Assign targets to units
         assigned_units = set()
         
-        # First, assign units to relic nodes if we have any
-        if relic_targets:
-            # Calculate distances between units and relic targets
-            distances = []
+        # First assign to visible relics
+        if visible_relics:
             for unit_idx, unit_pos, _ in active_units:
-                for target_pos in relic_targets:
-                    dist = manhattan_distance(unit_pos, target_pos)
-                    distances.append((dist, unit_idx, target_pos))
+                if unit_idx in assigned_units:
+                    continue
+                
+                # Find closest visible relic
+                closest_relic = min(
+                    visible_relics, 
+                    key=lambda r: manhattan_distance(unit_pos, r)
+                )
+                
+                targets[unit_idx] = closest_relic
+                assigned_units.add(unit_idx)
+                
+                if len(assigned_units) == len(active_units):
+                    return targets
+    
+        # Then assign to visible energy nodes
+        if visible_energy:
+            for unit_idx, unit_pos, unit_energy in active_units:
+                if unit_idx in assigned_units:
+                    continue
+                
+                # Find best energy node (closest if unit has high energy, most valuable if low)
+                energy_nodes = [(x, y) for x, y, _ in visible_energy]
+                if unit_energy < 50:  # Low energy - prioritize value
+                    best_energy = max(
+                        energy_nodes,
+                        key=lambda e: visible_energy[energy_nodes.index(e)][2]
+                    )
+                else:  # High energy - prioritize proximity
+                    best_energy = min(
+                        energy_nodes,
+                        key=lambda e: manhattan_distance(unit_pos, e)
+                    )
+                
+                targets[unit_idx] = best_energy
+                assigned_units.add(unit_idx)
+                
+                if len(assigned_units) == len(active_units):
+                    return targets
+    
+        # If no visible targets, explore toward enemy
+        for unit_idx, unit_pos, _ in active_units:
+            if unit_idx in assigned_units:
+                continue
             
-            # Sort by distance
-            distances.sort()
+            # Find farthest visible tile toward enemy
+            best_exploration = unit_pos  # Default to current position
+            max_distance = 0
             
-            # Assign units to relic targets
-            assigned_targets = set()
-            for _, unit_idx, target_pos in distances:
-                if unit_idx not in assigned_units and target_pos not in assigned_targets:
-                    targets[unit_idx] = target_pos
-                    assigned_units.add(unit_idx)
-                    assigned_targets.add(target_pos)
-                    
-                    # Break if all units assigned
-                    if len(assigned_units) == len(active_units):
-                        break
-        
-        # Then, assign remaining units to high energy targets
-        if high_energy_targets and len(assigned_units) < len(active_units):
-            remaining_units = [(i, pos, energy) for i, pos, energy in active_units if i not in assigned_units]
+            for y in range(self.map_height):
+                for x in range(self.map_width):
+                    if obs["sensor_mask"][y, x]:
+                        dist_to_enemy = manhattan_distance((x, y), enemy_spawn)
+                        if dist_to_enemy > max_distance:
+                            max_distance = dist_to_enemy
+                            best_exploration = (x, y)
             
-            # Calculate distances between remaining units and energy targets
-            distances = []
-            for unit_idx, unit_pos, unit_energy in remaining_units:
-                for target_pos in high_energy_targets:
-                    # Closer is better, but prioritize units with lower energy
-                    dist = manhattan_distance(unit_pos, target_pos)
-                    energy_factor = max(1, 100 / (unit_energy + 1))  # Lower energy = higher priority
-                    score = dist / energy_factor
-                    distances.append((score, unit_idx, target_pos))
-            
-            # Sort by score
-            distances.sort()
-            
-            # Assign units to energy targets
-            assigned_energy_targets = set()
-            for _, unit_idx, target_pos in distances:
-                if unit_idx not in assigned_units and target_pos not in assigned_energy_targets:
-                    targets[unit_idx] = target_pos
-                    assigned_units.add(unit_idx)
-                    assigned_energy_targets.add(target_pos)
-                    
-                    # Break if all units assigned
-                    if len(assigned_units) == len(active_units):
-                        break
-        
-        # Finally, assign any remaining units to exploration targets
-        if exploration_targets and len(assigned_units) < len(active_units):
-            remaining_units = [(i, pos, energy) for i, pos, energy in active_units if i not in assigned_units]
-            
-            # Calculate distances between remaining units and exploration targets
-            distances = []
-            for unit_idx, unit_pos, _ in remaining_units:
-                for target_pos in exploration_targets:
-                    dist = manhattan_distance(unit_pos, target_pos)
-                    distances.append((dist, unit_idx, target_pos))
-            
-            # Sort by distance
-            distances.sort()
-            
-            # Assign units to exploration targets
-            assigned_exploration_targets = set()
-            for _, unit_idx, target_pos in distances:
-                if unit_idx not in assigned_units and target_pos not in assigned_exploration_targets:
-                    targets[unit_idx] = target_pos
-                    assigned_units.add(unit_idx)
-                    assigned_exploration_targets.add(target_pos)
-                    
-                    # Break if all units assigned
-                    if len(assigned_units) == len(active_units):
-                        break
+            targets[unit_idx] = best_exploration
+            assigned_units.add(unit_idx)
         
         return targets

@@ -562,9 +562,9 @@ class SB3LuxEnvBase(gym.Wrapper):
         else:
             # Defaults
             max_steps = GameConstants.MAX_STEPS_IN_MATCH
-            unit_move_cost = 1
-            unit_sap_cost = 5
-            unit_sap_range = 2
+            unit_move_cost = 6
+            unit_sap_cost = 51
+            unit_sap_range = 3
             map_width = GameConstants.MAP_WIDTH
             map_height = GameConstants.MAP_HEIGHT
 
@@ -640,14 +640,49 @@ class SB3LuxEnvBase(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
+        # Reset all state variables
+        self.opponent_obs = None
+        self.opponent_model = None
+        self.opponent_model_path = None
+        self.last_obs = None
+        self.last_info = None
+        self.last_energy = None
+        self.last_move_direction = None
+        self.last_action = None
+        self.energy_map = None
+        self.visible_map = None
+        
+        # Reset exploration tracking
+        self.cumulative_sensor_mask = np.zeros(
+            (GameConstants.MAP_WIDTH, GameConstants.MAP_HEIGHT), dtype=bool
+        )
+        self.visited_tiles = np.zeros(
+            (GameConstants.MAP_WIDTH, GameConstants.MAP_HEIGHT), dtype=bool
+        )
+        
+        # Reset game tracking
+        self.relic_points_tiles = set()
+        self.consecutive_relic_control = 0
+        self.last_total_energy = 0
+        self.last_total_points = 0
+        
+        # Reset step counter
         self.current_step = 0
+        
+        # Reset team units and enemy units
+        self.team_spawn = (0, 0) if self.player_id == "player_0" else (GameConstants.MAP_WIDTH - 1, GameConstants.MAP_HEIGHT - 1)
         self.team_units = []
         spawn_x, spawn_y = self.team_spawn
         self.team_units.append({"x": spawn_x, "y": spawn_y, "energy": 100})
 
+        self.enemy_spawn = (GameConstants.MAP_WIDTH - 1, GameConstants.MAP_HEIGHT - 1) if self.player_id == "player_0" else (0, 0)
         self.enemy_units = []
         spawn_x_e, spawn_y_e = self.enemy_spawn
         self.enemy_units.append({"x": spawn_x_e, "y": spawn_y_e, "energy": 100})
+        
+        # Store initial observation
+        self.last_obs = obs
+        self.last_info = info
 
         processed_obs = self._process_observation(obs, info)
 
@@ -731,6 +766,23 @@ class SB3LuxEnvBase(gym.Wrapper):
                 )
             )
             unit_energy = obs[self.player_id].units.energy[0][idx]
+            
+            if self.current_step < GameConstants.MAX_STEPS_IN_MATCH * 0.3:  # Early game
+                # Calculate distance from enemy spawn
+                dist_to_enemy_spawn = abs(unit_pos[0] - self.enemy_spawn[0]) + abs(unit_pos[1] - self.enemy_spawn[1])
+                
+                # Normalize to 0-1 (max distance is map width + height)
+                normalized_dist = 1.0 - (dist_to_enemy_spawn / (GameConstants.MAP_WIDTH + GameConstants.MAP_HEIGHT))
+                
+                # Encourage movement toward enemy spawn early in game
+                unit_reward += 0.5 * (1.0 - normalized_dist)
+                
+            energy_ratio = unit_energy / GameConstants.MAX_UNIT_ENERGY  # Normalized to 0-1
+            if act == 5 and energy_ratio < 0.3:  # SAP with low energy
+                unit_reward -= 1.0  # Strong penalty for using SAP when energy is low
+            else:
+                # Reward for maintaining healthy energy levels
+                unit_reward += 0.1 * energy_ratio
 
             # Mark this tile as visited for exploration tracking
             if (
@@ -774,51 +826,55 @@ class SB3LuxEnvBase(gym.Wrapper):
 
             # Handle sap action
             if act == 5:  # Sap action
-                # Check if relic is visible in local observation
-                relic_visible = False
-                for j in range(len(obs[self.player_id].relic_nodes_mask)):
-                    if obs[self.player_id].relic_nodes_mask[j] == True:
-                        relic_visible = True
-                        break
-
-                if relic_visible:
-                    # Count enemy units in 8-neighborhood
-                    enemy_count = 0
-                    for dy in [-1, 0, 1]:
-                        for dx in [-1, 0, 1]:
-                            if dx == 0 and dy == 0:
-                                continue
-                            nx = unit_pos[0] + dx
-                            ny = unit_pos[1] + dy
-
-                            # Check bounds
-                            if not (
-                                0 <= nx < GameConstants.MAP_SIZE
-                                and 0 <= ny < GameConstants.MAP_SIZE
-                            ):
-                                continue
-
-                            # Check for enemy units at this position
-                            for enemy in self.enemy_units:
-                                if enemy["x"] == nx and enemy["y"] == ny:
-                                    enemy_count += 1
-
-                    # Enhanced reward based on enemy count and energy
-                    if enemy_count >= 2:
-                        sap_reward += 1.0 * enemy_count  # Base reward for multiple enemies
-
-                        # Additional reward based on potential energy damage
-                        sap_cost = (
-                            info["full_params"]["unit_sap_cost"] or 51
-                        )  # Default if unknown
-                        sap_cost = max(1, sap_cost)  # Avoid division by zero
-                        potential_damage = max(1, enemy_count * sap_cost)
-                        sap_reward += 0.05 * potential_damage
-                    else:
-                        # Reduced penalty if at least one enemy is nearby
-                        sap_reward -= 1.0 if enemy_count == 0 else 0.5
+                # Calculate the actual target position based on action dx, dy
+                target_x = unit_pos[0] + combined_action[self.player_id][idx, 1]
+                target_y = unit_pos[1] + combined_action[self.player_id][idx, 2]
+                if "full_params" in info:
+                    unit_sap_cost = info["full_params"]["unit_sap_cost"]
+                    unit_sap_dropoff_factor = info["full_params"]["unit_sap_dropoff_factor"]
                 else:
-                    sap_reward -= 1.0  # Higher penalty for sapping with no relic visible
+                    unit_sap_cost = 51
+                    unit_sap_dropoff_factor = 1
+                
+                
+                # Check if any enemy units are at or adjacent to the target position
+                enemy_hit = False
+                energy_drained = 0
+                
+                # Direct hit check
+                for enemy in obs[self.player_id].units.position[1]:
+                    if enemy[0].item() == target_x and enemy[1].item()  == target_y:
+                        enemy_hit = True
+                        energy_drained += unit_sap_cost  # Direct hit
+                
+                # Adjacent hit check (AOE)
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        if dx == 0 and dy == 0:
+                            continue  # Skip center (already checked)
+                        
+                        check_x = target_x + dx
+                        check_y = target_y + dy
+                        
+                        for enemy in obs[self.player_id].units.position[1]:
+                            if enemy[0].item() == check_x and enemy[1].item() == check_y:
+                                enemy_hit = True
+                                energy_drained += unit_sap_cost * unit_sap_dropoff_factor  # AOE hit
+                
+                if enemy_hit:
+                    sap_reward = 3.0 + (0.1 * energy_drained)  # Reward based on energy drained
+                else:
+                    # Check if targeting a relic
+                    targeting_relic = False
+                    for j in range(len(obs[self.player_id].relic_nodes_mask)):
+                        if obs[self.player_id].relic_nodes_mask[j] == 1:
+                            relic_pos = tuple(obs[self.player_id].relic_nodes[j])
+                            if abs(relic_pos[0] - target_x) <= 1 and abs(relic_pos[1] - target_y) <= 1:
+                                targeting_relic = True
+                                break
+                    
+                    # Less penalty if targeting relic, higher penalty otherwise
+                    sap_reward = -0.5 if targeting_relic else -2.0
             else:
                 # Handle movement actions
                 if 1 <= act <= 4:  # Movement actions
@@ -914,9 +970,9 @@ class SB3LuxEnvBase(gym.Wrapper):
                                     and 0 <= check_y < GameConstants.MAP_SIZE
                                 ):
                                     continue
-
+                            
                                 for enemy in self.enemy_units:
-                                    if enemy["x"] == nx and enemy["y"] == ny:
+                                    if enemy["x"] == check_x and enemy["y"] == check_y:
                                         enemy_count += 1
                                         enemy_pos = (enemy["x"], enemy["y"])
                                         enemy_energy = enemy["energy"]
@@ -977,14 +1033,26 @@ class SB3LuxEnvBase(gym.Wrapper):
 
         # Calculate final reward
         rule_based_reward = sum(unit_rewards) + exploration_reward + sum(sap_rewards)
-
+        if len(unit_positions) > 1:
+            avg_x = sum(pos[0] for pos in unit_positions) / len(unit_positions)
+            avg_y = sum(pos[1] for pos in unit_positions) / len(unit_positions)
+            
+            # Calculate average distance from centroid
+            avg_dispersion = sum(abs(pos[0] - avg_x) + abs(pos[1] - avg_y) for pos in unit_positions) / len(unit_positions)
+            
+            # Normalize by map size
+            normalized_dispersion = avg_dispersion / (GameConstants.MAP_WIDTH + GameConstants.MAP_HEIGHT)
+            
+            # Add dispersion reward
+            rule_based_reward += 0.5 * normalized_dispersion
+            
         # Dynamic reward weighting based on match progress
         match_progress = self.current_step / GameConstants.MAX_STEPS_IN_MATCH
         # Start with more emphasis on exploration, gradually shift to point accumulation
         point_weight = 0.3 + (0.4 * match_progress)  # 0.3 to 0.7
         rule_weight = 1.0 - point_weight  # 0.7 to 0.3
 
-        final_reward = (reward * point_weight) + (rule_based_reward * rule_weight)
+        final_reward = float((reward * point_weight) + (rule_based_reward * rule_weight))
 
         # Extract terminated for our player
         if isinstance(terminated_dict, dict) and self.player_id in terminated_dict:
