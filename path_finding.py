@@ -228,6 +228,7 @@ class StaticPathPlanner:
             if not obs["units_mask"][team_id][unit_idx]:
                 continue
             
+            
             # Get unit position
             unit_pos = (
                 obs["units_position"][team_id][unit_idx][0].item(),
@@ -288,8 +289,6 @@ class StaticPathPlanner:
         for unit_idx in range(len(obs["units_mask"][team_id])):
             # Check if the unit exists and is visible
             if not obs["units_mask"][team_id][unit_idx]:
-                # Unit doesn't exist, stay in place
-                actions.append(ActionType.STAY.value)
                 continue
             
             # Get unit position
@@ -311,13 +310,6 @@ class StaticPathPlanner:
                 
                 # Remove the current position from the path
                 self.paths[unit_idx] = self.paths[unit_idx][1:]
-            else:
-                # No path or reached destination, stay in place
-                actions.append(ActionType.STAY.value)
-        
-        # Pad actions to max units if needed
-        while len(actions) < GameConstants.MAX_UNITS:
-            actions.append(ActionType.STAY.value)
         
         return actions
     
@@ -427,23 +419,29 @@ class StaticPathPlanner:
                     return targets
     
         # If no visible targets, explore toward enemy
-        for unit_idx, unit_pos, _ in active_units:
-            if unit_idx in assigned_units:
-                continue
-            
-            # Find farthest visible tile toward enemy
-            best_exploration = unit_pos  # Default to current position
-            max_distance = 0
-            
-            for y in range(self.map_height):
-                for x in range(self.map_width):
-                    if obs["sensor_mask"][y, x]:
-                        dist_to_enemy = manhattan_distance((x, y), enemy_spawn)
-                        if dist_to_enemy > max_distance:
-                            max_distance = dist_to_enemy
-                            best_exploration = (x, y)
-            
-            targets[unit_idx] = best_exploration
-            assigned_units.add(unit_idx)
+        if active_units:
+            for unit_idx, unit_pos, _ in active_units:
+                if unit_idx in assigned_units:
+                    continue
+                
+                # Find farthest visible tile toward enemy
+                best_exploration = unit_pos  # Default to current position
+                max_distance = 0
+                
+                for y in range(self.map_height):
+                    for x in range(self.map_width):
+                        if obs["sensor_mask"][y, x]:
+                            dist_to_enemy = manhattan_distance((x, y), enemy_spawn)
+                            if dist_to_enemy > max_distance:
+                                max_distance = dist_to_enemy
+                                best_exploration = (x, y)
+                
+                targets[unit_idx] = best_exploration
+                assigned_units.add(unit_idx)
+        else:
+            # No active units, assing enemy start position
+            for unit_idx in range(GameConstants.MAX_UNITS):
+                targets[unit_idx] = enemy_spawn
+                assigned_units.add(unit_idx)
         
         return targets
