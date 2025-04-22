@@ -200,13 +200,13 @@ class SB3LuxEnvBase(gym.Wrapper):
         strategy_choice = np.random.random()
 
         # As training progresses, gradually shift from random to self-play opponents
-        if self.current_step < 10000:  # Early training
+        if self.current_step < 500000:  # Early training
             # 80% random, 20% rule-based
             if strategy_choice < 0.8:
                 return self._random_strategy()
             else:
                 return self._rule_based_strategy(obs)
-        elif self.current_step < 50000:  # Mid training
+        elif self.current_step < 100000:  # Mid training
             # 40% random, 40% rule-based, 20% previous model
             if strategy_choice < 0.4:
                 return self._random_strategy()
@@ -767,6 +767,10 @@ class SB3LuxEnvBase(gym.Wrapper):
             )
             unit_energy = obs[self.player_id].units.energy[0][idx]
             
+            dist_from_start = abs(unit_pos[0] - self.team_spawn[0]) + abs(unit_pos[1] - self.team_spawn[1])
+            normalized_dist = dist_from_start / (GameConstants.MAP_WIDTH + GameConstants.MAP_HEIGHT)
+            unit_reward += 0.2 * normalized_dist 
+            
             if self.current_step < GameConstants.MAX_STEPS_IN_MATCH * 0.3:  # Early game
                 # Calculate distance from enemy spawn
                 dist_to_enemy_spawn = abs(unit_pos[0] - self.enemy_spawn[0]) + abs(unit_pos[1] - self.enemy_spawn[1])
@@ -1017,8 +1021,8 @@ class SB3LuxEnvBase(gym.Wrapper):
                         # Progressive exploration reward based on match stage
                         match_progress = self.current_step / GameConstants.MAX_STEPS_IN_MATCH
                         # Higher reward early in match, lower later
-                        exploration_factor = max(0.1, 1.0 - match_progress)
-                        unit_reward += 0.3 * exploration_factor * newly_discovered
+                        exploration_factor = max(0.3, 1.0 - match_progress)
+                        unit_reward += 0.5 * exploration_factor * newly_discovered
 
             # Long-term planning reward: consecutive relic control bonus
             if self.consecutive_relic_control > 0 and unit_pos in self.relic_points_tiles:
@@ -1045,6 +1049,11 @@ class SB3LuxEnvBase(gym.Wrapper):
             
             # Add dispersion reward
             rule_based_reward += 0.5 * normalized_dispersion
+            
+        current_coverage = (np.sum(self.cumulative_sensor_mask) / (GameConstants.MAP_WIDTH * GameConstants.MAP_HEIGHT))
+        previous_coverage = (np.sum(self.last_obs[self.player_id].sensor_mask) / (GameConstants.MAP_WIDTH * GameConstants.MAP_HEIGHT))
+        coverage_reward = 5.0 * (current_coverage - previous_coverage)  # Reward for improving coverage
+        rule_based_reward += coverage_reward
             
         # Dynamic reward weighting based on match progress
         match_progress = self.current_step / GameConstants.MAX_STEPS_IN_MATCH
@@ -1159,7 +1168,7 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         player_id="player_0", 
         opponent_strategy="random", 
         max_units=GameConstants.MAX_UNITS,
-        replan_interval=100  # How often to replan paths (in steps)
+        replan_interval=None  # How often to replan paths (in steps)
     ):
         if env is None:
             env = LuxAIS3GymEnv()
@@ -1175,6 +1184,7 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         self.player_id = player_id
         self.replan_interval = replan_interval
         self.last_replan_step = -1
+        self.current_step = 0
         
         # Define observation and action spaces from base wrapper
         self.observation_space = self.base_wrapper.observation_space
@@ -1185,7 +1195,8 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         obs, info = self.base_wrapper.reset(**kwargs)
         
         # Reset planning variables
-        self.last_replan_step = -1
+        self.last_replan_step = 0
+        self.current_step = 0
         
         # Reset path planner state
         self.path_planner.paths = {}  # Clear cached paths
@@ -1212,13 +1223,20 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         """
         # Get the current observation
         current_obs = self.base_wrapper.last_obs 
+        self.current_step += 1
         
         if current_obs is not None:
             processed_obs = self.base_wrapper._process_observation(current_obs, self.base_wrapper.last_info)
-            current_step = processed_obs["steps"][0]
+            self.current_step = processed_obs["steps"][0]
+            
+            # Only replan if frequency is set and enough steps have passed
+            should_replan = (
+                self.replan_interval is not None and 
+                self.current_step - self.last_replan_step >= self.replan_interval
+            )
             
             # Check if we need to replan (first step or replan interval)
-            if self.last_replan_step == -1 or current_step - self.last_replan_step >= self.replan_interval:
+            if should_replan:
                 # Find targets for units
                 targets = self.path_planner.find_targets_for_units(processed_obs, self.player_id)
                 
@@ -1226,7 +1244,7 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
                 self.path_planner.compute_paths_for_all_units(processed_obs, self.player_id, targets)
                 
                 # Update last replan step
-                self.last_replan_step = current_step
+                self.last_replan_step = self.current_step
             
             # Get the next actions for all units based on their paths
             path_actions = self.path_planner.get_next_actions(processed_obs, self.player_id)
