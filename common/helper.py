@@ -69,42 +69,44 @@ class EnhancedTensorboardCallback(BaseCallback):
     def _on_step(self):
         for info in self.locals.get("infos", []):
             metrics = info["lux_metrics"]
-            if "episode" in info:
-                # Basic episode metrics
-                self.episode_rewards.append(info["episode"]["r"])
-                self.episode_lengths.append(info["episode"]["l"])
-                self.episode_count += 1
+            metrics_static_planner = info["lux_metrics_static_planner"] if "lux_metrics_static_planner" in info else {}
+            metrics_mappo = info["lux_metrics_mappo"] if "lux_metrics_mappo" in info else {}
+            # if "episode" in info:
+            #     # Basic episode metrics
+            #     self.episode_rewards.append(info["episode"]["r"])
+            #     self.episode_lengths.append(info["episode"]["l"])
+            #     self.episode_count += 1
 
-                # Log to TensorBoard
-                self.logger.record(
-                    "rollout/ep_rew_mean",
-                    sum(self.episode_rewards[-100:]) / len(self.episode_rewards[-100:]),
-                )
-                self.logger.record(
-                    "rollout/ep_len_mean",
-                    sum(self.episode_lengths[-100:]) / len(self.episode_lengths[-100:]),
-                )
+            #     # Log to TensorBoard
+            #     self.logger.record(
+            #         "rollout/ep_rew_mean",
+            #         sum(self.episode_rewards[-100:]) / len(self.episode_rewards[-100:]),
+            #     )
+            #     self.logger.record(
+            #         "rollout/ep_len_mean",
+            #         sum(self.episode_lengths[-100:]) / len(self.episode_lengths[-100:]),
+            #     )
 
-                # You can log individual episode rewards too
-                self.logger.record(f"episode/reward", info["episode"]["r"])
-                self.logger.record(f"episode/length", info["episode"]["l"])
-                if "match_number" in metrics and "game_number" in metrics:
-                    match_num = metrics["match_number"]
-                    game_num = metrics["game_number"]
-                    self.logger.record(
-                        f"lux/game_{game_num}_match_{match_num}_reward",
-                        info["episode"]["r"],
-                    )
+            #     # You can log individual episode rewards too
+            #     self.logger.record(f"episode/reward", info["episode"]["r"])
+            #     self.logger.record(f"episode/length", info["episode"]["l"])
+            #     if "match_number" in metrics and "game_number" in metrics:
+            #         match_num = metrics["match_number"]
+            #         game_num = metrics["game_number"]
+            #         self.logger.record(
+            #             f"lux/game_{game_num}_match_{match_num}_reward",
+            #             info["episode"]["r"],
+            #         )
 
-                    # Track reward progression across matches
-                    if 0 <= match_num < 5:
-                        self.match_rewards[match_num].append(info["episode"]["r"])
-                        match_avg = sum(self.match_rewards[match_num]) / len(
-                            self.match_rewards[match_num]
-                        )
-                        self.logger.record(
-                            f"lux/match_{match_num}_avg_reward", match_avg
-                        )
+            #         # Track reward progression across matches
+            #         if 0 <= match_num < 5:
+            #             self.match_rewards[match_num].append(info["episode"]["r"])
+            #             match_avg = sum(self.match_rewards[match_num]) / len(
+            #                 self.match_rewards[match_num]
+            #             )
+            #             self.logger.record(
+            #                 f"lux/match_{match_num}_avg_reward", match_avg
+                        # )
 
             # print(f"Match {metrics['match_number']}, Game {metrics['game_number']}, Reward: {info['episode']['r']}")
             # Resource metrics
@@ -230,5 +232,46 @@ class EnhancedTensorboardCallback(BaseCallback):
                 # Log each unit's position
                 for idx, pos in enumerate(unit_positions):
                     self.logger.record(f"lux/unit_{idx}_position", pos)
-
+            if "static_planner_bonus_sap_reward" in metrics_static_planner:
+                value = metrics_static_planner["static_planner_bonus_sap_reward"]
+                # Convert JAX array to standard float
+                if hasattr(value, "item"):
+                    float_value = float(value.item())
+                else:
+                    float_value = float(value)
+                self.logger.record(
+                    "lux/static_planner_bonus_sap_reward", float_value
+                )
+            if "mappo_reward" in metrics_mappo:
+                value = metrics_mappo["mappo_reward"]
+                # Convert JAX array to standard float
+                if hasattr(value, "item"):
+                    float_value = float(value.item())
+                else:
+                    float_value = float(value)
+                self.logger.record("lux/mappo_reward", float_value)
+            if "final_mappo_reward" in metrics_mappo:
+                value = metrics_mappo["final_mappo_reward"]
+                # Convert JAX array to standard float
+                if hasattr(value, "item"):
+                    float_value = float(value.item())
+                else:
+                    float_value = float(value)
+                self.logger.record("lux/final_mappo_reward", float_value)
+            if "collision_detected" in metrics_mappo:
+                value = metrics_mappo["collision_detected"]
+                # Convert JAX array to standard float
+                if hasattr(value, "item"):
+                    float_value = float(value.item())
+                else:
+                    float_value = float(value)
+                self.logger.record("lux/collision_detected", float_value)
+            if "replan_decisions" in metrics_mappo:
+                value = metrics_mappo["replan_decisions"]
+                # Convert JAX array to standard float
+                if hasattr(value, "item"):
+                    float_value = float(value.item())
+                else:
+                    float_value = float(value)
+                self.logger.record("lux/replan_decisions", float_value)
         return True
