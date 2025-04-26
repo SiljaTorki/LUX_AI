@@ -2,7 +2,7 @@ import os
 import sys
 import numpy as np
 from stable_baselines3 import PPO
-from environment import GameConstants, ActionType
+from common.environment import GameConstants, ActionType
 
 
 def transform_obs(comp_obs, env_cfg=None, remainingOverageTime=60, team_id=0):
@@ -98,7 +98,6 @@ class Agent:
             flat_obs["units_mask"] = np.array(
                 [flat_obs["units_mask"][1], flat_obs["units_mask"][0]]
             )
-
         action, _ = self.model.predict(flat_obs, deterministic=False)
         action = np.array(action, dtype=np.int32)
 
@@ -147,10 +146,6 @@ class Agent:
 
         # Process each unit's action
         for i, a in enumerate(action):
-            # Skip inactive units
-            # if i >= len(flat_obs["units_mask"][team_idx]) or not flat_obs["units_mask"][team_idx][i]:
-            #     continue
-
             # Get this unit's position
             unit_pos = flat_obs["units_position"][team_idx][i]
 
