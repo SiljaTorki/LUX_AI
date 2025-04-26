@@ -5,7 +5,7 @@ from stable_baselines3 import PPO
 from common.environment import GameConstants, ActionType
 
 
-def transform_obs(comp_obs, env_cfg=None, remainingOverageTime=60, team_id=0):
+def transform_obs(comp_obs, env_cfg=None, remainingOverageTime=60):
     """
     Transform observations to match the format expected by the PPO model.
     The model expects specific shapes for each observation field.
@@ -71,7 +71,7 @@ class Agent:
         self.discovered_relic_nodes_ids = set()
         self.unit_last_directions = dict()
         self.unit_explore_locations = dict()
-        model_path = os.path.join(os.path.dirname(__file__), "ppo_lux_model_base.zip")
+        model_path = os.path.join(os.path.dirname(__file__), "./training/ppo_lux_model_base.zip")
         self.model = PPO.load(model_path)
         if "max_units" not in self.env_cfg:
             self.env_cfg["max_units"] = GameConstants.MAX_UNITS
@@ -87,7 +87,7 @@ class Agent:
                 "Model is not loaded. Please load the model before calling act."
             )
 
-        flat_obs = transform_obs(obs, self.env_cfg, remainingOverageTime, self.team_id)
+        flat_obs = transform_obs(obs, self.env_cfg, remainingOverageTime)
         if self.player == "player_1":
             flat_obs["units_position"] = np.array(
                 [flat_obs["units_position"][1], flat_obs["units_position"][0]]
@@ -104,7 +104,7 @@ class Agent:
         # Process actions for deployment
         max_units = self.env_cfg["max_units"]
         actions = np.zeros((max_units, 3), dtype=np.int32)
-
+        
         # Get sap range from config (default to 3 if not specified)
         sap_range = (
             self.env_cfg["unit_sap_range"] if "unit_sap_range" in self.env_cfg else 3
