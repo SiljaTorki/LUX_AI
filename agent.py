@@ -71,7 +71,9 @@ class Agent:
         self.discovered_relic_nodes_ids = set()
         self.unit_last_directions = dict()
         self.unit_explore_locations = dict()
-        model_path = os.path.join(os.path.dirname(__file__), "./training/ppo_lux_model_base.zip")
+        model_path = os.path.join(
+            os.path.dirname(__file__), "./training/ppo_lux_model_mappohr.zip"
+        )
         self.model = PPO.load(model_path)
         if "max_units" not in self.env_cfg:
             self.env_cfg["max_units"] = GameConstants.MAX_UNITS
