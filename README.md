@@ -21,9 +21,9 @@ The design is inspired by strong baselines and cutting-edge research:
 
 - [MAPPOHR Research Paper (Multi-Agent Path Planning)](https://arxiv.org/abs/2306.01270)
 
-<div style="display:flex; justify-content:center;">
-  <img src="mappohr_result_example.gif" alt="MAPPOHR Agent Result" width="400"/>
-</div>
+<table><tr><td align="center">
+  <img src="mappohr_result_example.gif" width="300"/>
+</td></tr></table>
 
 ## Table of Contents
 
@@ -242,10 +242,7 @@ The same general training setup is used for all wrappers:
 
 - **Algorithm**: PPO (Proximal Policy Optimization)
 
-- **Learning Rate**:
-
-  - Base/Static: linearly scheduled from 5e-4 to 1e-4
-  - MAPPOHR: linearly scheduled from 1e-3 to 5e-5
+- **Learning Rate**: linearly scheduled from 5e-4 to 1e-4
 
 - **Steps per Rollout (n_steps)**: 2048
 
