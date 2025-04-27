@@ -21,7 +21,9 @@ The design is inspired by strong baselines and cutting-edge research:
 
 - [MAPPOHR Research Paper (Multi-Agent Path Planning)](https://arxiv.org/abs/2306.01270)
 
-![MAPPOHR Agent Result](mappohr_result.gif)
+<div style="display:flex; justify-content:center;">
+  <img src="mappohr_result_example.gif" alt="MAPPOHR Agent Result" width="400"/>
+</div>
 
 ## Table of Contents
 
