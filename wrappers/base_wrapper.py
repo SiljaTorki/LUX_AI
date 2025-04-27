@@ -944,7 +944,7 @@ class SB3LuxEnvBase(gym.Wrapper):
             if any_enemy_in_range:
                 return -1.0
             else:
-                return -0.5  # Very small penalty when no enemies were in range anyway
+                return -0.5  # Small penalty when no enemies were in range anyway
 
     def check_sap_hit_enemy(self, obs, target_x, target_y):
         """
@@ -1344,15 +1344,12 @@ class SB3LuxEnvBase(gym.Wrapper):
                 GameConstants.MAP_WIDTH * GameConstants.MAP_HEIGHT
             )
 
-            # Higher rewards for exploration when coverage is low
-            if current_coverage < 0.10:
-                return 3.0  # Higher reward early when map is mostly unexplored
-            elif current_coverage < 0.25:
-                return 2.0
-            elif current_coverage < 0.50:
-                return 1.0
+            if current_coverage >= 0.50 and self.last_coverage < 0.50:
+                return 10.0  # Big bonus for reaching 50% exploration
+            elif current_coverage >= 0.25 and self.last_coverage < 0.25:
+                return 5.0  # Bonus for reaching 25% exploration
             else:
-                return 0.5  # Still some reward for late-game exploration
+                return 1.0  # Base reward for any new tile
 
         return 0.0  # No reward if not exploring a new tile
 
