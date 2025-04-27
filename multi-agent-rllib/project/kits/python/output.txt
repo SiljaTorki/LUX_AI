@@ -1,0 +1,98 @@
+player_1, kits/python/main.py: Player player_1 (Team ID: 1, Policy: p1): Attempting to load RLlib RLModule...
+
+player_0, kits/python/main.py: Player player_0 (Team ID: 0, Policy: p0): Attempting to load RLlib RLModule...
+
+player_1, kits/python/main.py: 2025-04-27 18:34:58,851	WARNING deprecation.py:50 -- DeprecationWarning: `RLModule(config=[RLModuleConfig object])` has been deprecated. Use `RLModule(observation_space=.., action_space=.., inference_only=.., model_config=.., catalog_class=..)` instead. This will raise an error in the future!
+
+player_0, kits/python/main.py: 2025-04-27 18:34:58,864	WARNING deprecation.py:50 -- DeprecationWarning: `RLModule(config=[RLModuleConfig object])` has been deprecated. Use `RLModule(observation_space=.., action_space=.., inference_only=.., model_config=.., catalog_class=..)` instead. This will raise an error in the future!
+
+player_1, kits/python/main.py: Traceback (most recent call last):
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\GIT\uib\luxAI-s3\project\kits\python\main.py", line 59, in <module>
+
+player_1, kits/python/main.py:     actions = agent_fn(observation, dict(env_cfg=env_cfg))
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\GIT\uib\luxAI-s3\project\kits\python\main.py", line 35, in agent_fn
+
+player_1, kits/python/main.py:     actions = agent.act(step, from_json(obs), remainingOverageTime)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\GIT\uib\luxAI-s3\project\kits\python\agent.py", line 43, in act
+
+player_1, kits/python/main.py:     rl_module_out = self.rl_module.forward_inference(input_dict)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\rl_module\rl_module.py", line 564, in forward_inference
+
+player_1, kits/python/main.py:     return self._forward_inference(batch, **kwargs)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\rl_module\torch\torch_rl_module.py", line 89, in _forward_inference
+
+player_1, kits/python/main.py:     return self._forward(batch, **kwargs)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\algorithms\ppo\torch\default_ppo_torch_rl_module.py", line 31, in _forward
+
+player_1, kits/python/main.py:     encoder_outs = self.encoder(batch)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\torch\nn\modules\module.py", line 1739, in _wrapped_call_impl
+
+player_1, kits/python/main.py:     return self._call_impl(*args, **kwargs)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\torch\nn\modules\module.py", line 1750, in _call_impl
+
+player_1, kits/python/main.py:     return forward_call(*args, **kwargs)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\models\torch\base.py", line 77, in forward
+
+player_1, kits/python/main.py:     return self._forward(inputs, **kwargs)
+
+player_1, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\models\base.py", line 404, in _forward
+
+player_1, kits/python/main.py:     actor_inputs[Columns.STATE_IN] = inputs[Columns.STATE_IN][ACTOR]
+
+player_1, kits/python/main.py: KeyError: 'state_in'
+
+player_0, kits/python/main.py: Traceback (most recent call last):
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\GIT\uib\luxAI-s3\project\kits\python\main.py", line 59, in <module>
+
+player_0, kits/python/main.py:     actions = agent_fn(observation, dict(env_cfg=env_cfg))
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\GIT\uib\luxAI-s3\project\kits\python\main.py", line 35, in agent_fn
+
+player_0, kits/python/main.py:     actions = agent.act(step, from_json(obs), remainingOverageTime)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\GIT\uib\luxAI-s3\project\kits\python\agent.py", line 43, in act
+
+player_0, kits/python/main.py:     rl_module_out = self.rl_module.forward_inference(input_dict)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\rl_module\rl_module.py", line 564, in forward_inference
+
+player_0, kits/python/main.py:     return self._forward_inference(batch, **kwargs)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\rl_module\torch\torch_rl_module.py", line 89, in _forward_inference
+
+player_0, kits/python/main.py:     return self._forward(batch, **kwargs)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\algorithms\ppo\torch\default_ppo_torch_rl_module.py", line 31, in _forward
+
+player_0, kits/python/main.py:     encoder_outs = self.encoder(batch)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\torch\nn\modules\module.py", line 1739, in _wrapped_call_impl
+
+player_0, kits/python/main.py:     return self._call_impl(*args, **kwargs)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\torch\nn\modules\module.py", line 1750, in _call_impl
+
+player_0, kits/python/main.py:     return forward_call(*args, **kwargs)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\models\torch\base.py", line 77, in forward
+
+player_0, kits/python/main.py:     return self._forward(inputs, **kwargs)
+
+player_0, kits/python/main.py:   File "C:\Users\karlh\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\rllib\core\models\base.py", line 404, in _forward
+
+player_0, kits/python/main.py:     actor_inputs[Columns.STATE_IN] = inputs[Columns.STATE_IN][ACTOR]
+
+player_0, kits/python/main.py: KeyError: 'state_in'
+
+player_0, kits/python/main.py: cannot parse action ''
+player_1, kits/python/main.py: cannot parse action ''

@@ -1,0 +1,8 @@
+chex==0.1.89
+flax==0.10.5
+gymnasium==1.1.1
+gymnax==0.0.8
+jax==0.6.0
+numpy==2.2.5
+pygame==2.6.1
+torch==2.6.0
