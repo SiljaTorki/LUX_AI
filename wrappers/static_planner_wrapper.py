@@ -5,6 +5,7 @@ from common.environment import GameConstants
 from wrappers.utils.path_finding import StaticPathPlanner
 from wrappers.base_wrapper import SB3LuxEnvBase
 
+
 class SB3LuxEnvStaticPlanner(gym.Wrapper):
     """
     A wrapper for the Lux S3 environment to make it compatible with SB3/Stable Baselines 3.
@@ -18,12 +19,13 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         opponent_strategy="random",
         max_units=GameConstants.MAX_UNITS,
         replan_interval=None,  # How often to replan paths (in steps)
-        model_dir="ppo_lux_model_base.zip",
+        model_dir="./trainingAll/ppo_lux_model_base.zip",
     ):
         if env is None:
             env = LuxAIS3GymEnv()
         super().__init__(env)
 
+        # Path to model used for self-play
         self.base_model_dir = model_dir
 
         # Initialize the base wrapper
@@ -43,7 +45,16 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         self.action_space = self.base_wrapper.action_space
 
     def reset(self, **kwargs):
-        """Reset the environment and replan paths."""
+        """
+        Reset the environment and initialize the path planner.
+
+        Args:
+            **kwargs: Additional arguments for the base environment reset.
+        Returns:
+            obs: The initial observation after reset.
+            info: Additional information about the environment state.
+        """
+
         obs, info = self.base_wrapper.reset(**kwargs)
 
         # Reset planning variables
@@ -54,7 +65,7 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         self.path_planner.paths = {}  # Clear cached paths
         self.path_planner.targets = {}  # Clear targets
 
-        # You might also want to initialize the cost map with the first observation
+        # Initialize the cost map with the first observation
         self.path_planner.astar.update_cost_map(obs)
 
         # Immediately plan initial paths
@@ -62,6 +73,62 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         self.path_planner.compute_paths_for_all_units(obs, self.player_id, targets)
 
         return obs, info
+
+    def is_near_relic_node(self, obs, unit_pos):
+        """
+        Check if a unit is near a relic node.
+
+        Args:
+            obs: The current observation from the environment.
+            unit_pos: The position of the unit to check.
+
+        Returns:
+            bool: True if the unit is near a relic node, False otherwise.
+        """
+
+        # Check if the unit's position is within a certain distance from any relic node
+        for relic_node in obs["relic_nodes"]:
+            if (
+                abs(unit_pos[0] - relic_node[0]) <= 1
+                and abs(unit_pos[1] - relic_node[1]) <= 1
+            ):
+                return True
+        return False
+
+    def is_strategic_position(self, obs, unit_pos):
+        """
+        Check if a unit is in a strategic position.
+
+        Args:
+            obs: The current observation from the environment.
+            unit_pos: The position of the unit to check.
+
+        Returns:
+            bool: True if the unit is in a strategic position, False otherwise.
+        """
+        enemy_start_pos = (
+            (0, 0)
+            if self.player_id == "player_1"
+            else (GameConstants.MAP_WIDTH - 1, GameConstants.MAP_HEIGHT - 1)
+        )
+
+        # Define strategic positions mid map, enemy base, relic nodes
+        strategic_positions = [
+            (GameConstants.MAP_WIDTH // 2, GameConstants.MAP_HEIGHT // 2),  # Mid map
+            enemy_start_pos,  # Enemy base
+        ]
+        for relic_node in obs["relic_nodes"]:
+            # Check if the relic node is within the map bounds
+            if (
+                relic_node[0] >= 0
+                and relic_node[0] < GameConstants.MAP_WIDTH
+                and relic_node[1] >= 0
+                and relic_node[1] < GameConstants.MAP_HEIGHT
+            ):
+                # Add the relic node to strategic positions
+                strategic_positions.append((relic_node[0], relic_node[1]))
+
+        return unit_pos in strategic_positions
 
     def step(self, actions, models_dir=None):
         """
@@ -73,10 +140,13 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
         Returns:
             observation, reward, terminated, truncated, info
         """
+
         # Get the current observation
         current_obs = self.base_wrapper.last_obs
         self.current_step += 1
-        models_dir = "./ppo_lux_model_static_planner/" if models_dir is None else models_dir
+        models_dir = (
+            "../ppo_lux_model_static_planner/" if models_dir is None else models_dir
+        )
         model_files = (
             [
                 os.path.join(models_dir, f)
@@ -106,7 +176,6 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
                 or self.path_planner.paths == {}
             )
 
-            # Check if we need to replan (first step or replan interval)
             if should_replan:
                 # Find targets for units
                 targets = self.path_planner.find_targets_for_units(
@@ -127,7 +196,6 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
             )
 
             # Override with sap actions from the RL agent when appropriate
-            # Here we assume actions is a MultiDiscrete space with 6 possible actions per unit
             unit_actions = []
             for unit_idx in range(min(len(path_actions), len(actions))):
                 # Check if the RL agent wants to perform a sap action (action 5)
@@ -149,4 +217,35 @@ class SB3LuxEnvStaticPlanner(gym.Wrapper):
             # If no observation is available, just step the environment with the original actions
             obs, reward, terminated, truncated, info = self.base_wrapper.step(actions)
 
-        return obs, reward, terminated, truncated, info
+        # Add context-specific rewards (different from the base ones)
+        contextual_sap_reward = 0.0
+        player_idx = 0 if self.player_id == "player_0" else 1
+        # Count sap actions that were taken in specific strategic contexts
+        sap_count = 0
+        for idx, action in enumerate(actions):
+            if action == 5:  # Sap action
+                sap_count += 1
+                unit_pos = tuple(
+                    (
+                        obs["units_position"][player_idx][idx][0].item(),
+                        obs["units_position"][player_idx][idx][1].item(),
+                    )
+                )
+                # Add strategic context rewards
+                if self.is_near_relic_node(obs, unit_pos):
+                    # Extra reward for using sap near relic nodes (territory control)
+                    contextual_sap_reward += 2.0
+
+                if self.is_strategic_position(obs, unit_pos):
+                    # Extra reward for using sap in positions of strategic importance
+                    contextual_sap_reward += 2.0
+
+        # Add these new contextual rewards
+        enhanced_reward = reward + contextual_sap_reward
+
+        # Log to tensorboard
+        lux_metrics = {}
+        lux_metrics["static_planner_bonus_sap_reward"] = contextual_sap_reward
+        info["lux_metrics_static_planner"] = lux_metrics
+
+        return obs, enhanced_reward, terminated, truncated, info

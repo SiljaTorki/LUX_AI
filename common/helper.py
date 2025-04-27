@@ -2,6 +2,7 @@ import numpy as np
 from typing import Callable
 from stable_baselines3.common.callbacks import BaseCallback
 
+
 def make_env(env_params, wrapped_env, seed=None):
     """
     Create and wrap a Lux S3 environment for SBX/Stable Baselines 3.
@@ -10,6 +11,9 @@ def make_env(env_params, wrapped_env, seed=None):
         seed: Random seed for reproducibility
         player_id: ID of the player to train ('player_0' or 'player_1')
         opponent_strategy: Strategy for the opponent ('random', 'static', etc.)
+
+    Returns:
+        wrapped_env: The wrapped environment with the specified parameters.
     """
 
     # Reset to initialize observation and action spaces
@@ -20,6 +24,14 @@ def make_env(env_params, wrapped_env, seed=None):
 
 
 def custom_env_check(env, episodes=1):
+    """
+    Custom environment check function to test the environment.
+
+    Args:
+        env: The environment to check.
+        episodes: Number of episodes to run for testing.
+    """
+
     for episode in range(episodes):
         env.reset()
         done = False
@@ -33,31 +45,52 @@ def custom_env_check(env, episodes=1):
                 done = True
         print("🏁 Episode finished 🏁", rewards)
     env.close()
-    
+
+
 def linear_schedule(
     initial_value: float, final_value: float
 ) -> Callable[[float], float]:
     """
-    Linear learning rate schedule.
+    Linear schedule for the learning rate.
 
-    :param initial_value: Initial learning rate
-    :param final_value: Final learning rate
-    :return: schedule that computes current learning rate depending on remaining progress
+    Args:
+        initial_value: Initial learning rate.
+        final_value: Final learning rate.
+
+    Returns:
+        func: A function that takes progress_remaining (0 to 1) and returns the current learning rate.
     """
 
     def func(progress_remaining: float) -> float:
         """
         Progress will decrease from 1 (beginning) to 0.
 
-        :param progress_remaining: 1.0 - (current_timestep / total_timesteps)
-        :return: current learning rate
+        Args:
+            progress_remaining: Progress remaining (0 to 1).
+
+        Returns:
+            float: The current learning rate based on the progress remaining.
         """
         return final_value + progress_remaining * (initial_value - final_value)
 
     return func
 
+
 class EnhancedTensorboardCallback(BaseCallback):
+    """
+    Custom callback for logging additional metrics to TensorBoard.
+
+    Args:
+        BaseCallback: Inherits from the BaseCallback class.
+    """
+
     def __init__(self, verbose=0):
+        """
+        Initialize the EnhancedTensorboardCallback.
+
+        Args:
+            verbose: Verbosity level (0 = silent, 1 = info, 2 = debug).
+        """
         super(EnhancedTensorboardCallback, self).__init__(verbose)
         self.match_rewards = [
             [] for _ in range(5)
@@ -67,48 +100,19 @@ class EnhancedTensorboardCallback(BaseCallback):
         self.episode_count = 0
 
     def _on_step(self):
+        """Log metrics at each step."""
+
         for info in self.locals.get("infos", []):
             metrics = info["lux_metrics"]
-            metrics_static_planner = info["lux_metrics_static_planner"] if "lux_metrics_static_planner" in info else {}
-            metrics_mappo = info["lux_metrics_mappo"] if "lux_metrics_mappo" in info else {}
-            # if "episode" in info:
-            #     # Basic episode metrics
-            #     self.episode_rewards.append(info["episode"]["r"])
-            #     self.episode_lengths.append(info["episode"]["l"])
-            #     self.episode_count += 1
+            metrics_static_planner = (
+                info["lux_metrics_static_planner"]
+                if "lux_metrics_static_planner" in info
+                else {}
+            )
+            metrics_mappo = (
+                info["lux_metrics_mappo"] if "lux_metrics_mappo" in info else {}
+            )
 
-            #     # Log to TensorBoard
-            #     self.logger.record(
-            #         "rollout/ep_rew_mean",
-            #         sum(self.episode_rewards[-100:]) / len(self.episode_rewards[-100:]),
-            #     )
-            #     self.logger.record(
-            #         "rollout/ep_len_mean",
-            #         sum(self.episode_lengths[-100:]) / len(self.episode_lengths[-100:]),
-            #     )
-
-            #     # You can log individual episode rewards too
-            #     self.logger.record(f"episode/reward", info["episode"]["r"])
-            #     self.logger.record(f"episode/length", info["episode"]["l"])
-            #     if "match_number" in metrics and "game_number" in metrics:
-            #         match_num = metrics["match_number"]
-            #         game_num = metrics["game_number"]
-            #         self.logger.record(
-            #             f"lux/game_{game_num}_match_{match_num}_reward",
-            #             info["episode"]["r"],
-            #         )
-
-            #         # Track reward progression across matches
-            #         if 0 <= match_num < 5:
-            #             self.match_rewards[match_num].append(info["episode"]["r"])
-            #             match_avg = sum(self.match_rewards[match_num]) / len(
-            #                 self.match_rewards[match_num]
-            #             )
-            #             self.logger.record(
-            #                 f"lux/match_{match_num}_avg_reward", match_avg
-                        # )
-
-            # print(f"Match {metrics['match_number']}, Game {metrics['game_number']}, Reward: {info['episode']['r']}")
             # Resource metrics
             if "energy_collected" in metrics:
                 value = metrics["energy_collected"]
@@ -239,9 +243,7 @@ class EnhancedTensorboardCallback(BaseCallback):
                     float_value = float(value.item())
                 else:
                     float_value = float(value)
-                self.logger.record(
-                    "lux/static_planner_bonus_sap_reward", float_value
-                )
+                self.logger.record("lux/static_planner_bonus_sap_reward", float_value)
             if "mappo_reward" in metrics_mappo:
                 value = metrics_mappo["mappo_reward"]
                 # Convert JAX array to standard float

@@ -205,15 +205,14 @@ class StaticPathPlanner:
 
         # Convert direction to action
         if dx == 0 and dy == -1:
-            return ActionType.MOVE_UP.value  # Move Up
+            return ActionType.MOVE_UP.value 
         elif dx == 1 and dy == 0:
-            return ActionType.MOVE_RIGHT.value  # Move Right
+            return ActionType.MOVE_RIGHT.value  
         elif dx == 0 and dy == 1:
-            return ActionType.MOVE_DOWN.value  # Move Down
+            return ActionType.MOVE_DOWN.value 
         elif dx == -1 and dy == 0:
-            return ActionType.MOVE_LEFT.value  # Move Left
+            return ActionType.MOVE_LEFT.value 
         else:
-            # Default to no action if not a cardinal direction
             return ActionType.STAY.value
     
     def _find_closest_walkable_position(self, target, cost_map):
@@ -306,7 +305,6 @@ class StaticPathPlanner:
             else:
                 print(f"Path not found for unit {unit_idx} from {unit_pos} to {target}")
                 # If no path found, store just the current position
-                # This will make the unit stay put until a valid path is found
                 self.paths[unit_idx] = [unit_pos]
 
         return self.paths
@@ -495,20 +493,9 @@ class State:
         self.x = x
         self.y = y
         
-    def __eq__(self, other):
-        return self.x == other.x and self.y == other.y
-    
-    def __hash__(self):
-        return hash((self.x, self.y))
-    
-    def __lt__(self, other):
-        return (self.x, self.y) < (other.x, other.y)  # For priority queue
-    
     def __str__(self):
         return f"({self.x}, {self.y})"
     
-    def __repr__(self):
-        return self.__str__()
 
 class DStarLitePlanner:
     """
@@ -516,10 +503,10 @@ class DStarLitePlanner:
     with moving obstacles and fog of war in the Lux AI environment.
     """  
     def __init__(self):
-            self.k_m = 0  # Accumulated cost changes
-            self.U = []  # Priority queue for states to update
-            self.rhs = defaultdict(lambda: float('inf'))  # Right-hand side values
-            self.g = defaultdict(lambda: float('inf'))  # Cost-to-go values
+            self.accumylated_cost_changes = 0  # Accumulated cost changes
+            self.update_priority_queue = []  # Priority queue for states to update
+            self.right_hand_side = defaultdict(lambda: float('inf'))  # Right-hand side values
+            self.cost_to_go = defaultdict(lambda: float('inf'))  # Cost-to-go values
             self.paths = {}  # Cached paths for units
             self.targets = {}  # Target positions for units
             self.last_known_map = None  # Last observed map state
@@ -529,73 +516,102 @@ class DStarLitePlanner:
             
     def _heuristic(self, s1, s2):
         """
-        Manhattan distance heuristic for D* Lite.
+        Heuristic function for D* Lite.
+        
+        Args:
+            s1: First state (x, y)
+            s2: Second state (x, y)
+            
+        Returns:
+            Heuristic cost (Manhattan distance)
         """
-        return abs(s1.x - s2.x) + abs(s1.y - s2.y)
+        return manhattan_distance((s1.x, s1.y), (s2.x, s2.y))
     
-    def _calculate_key(self, s, start):
+    def calculate_key(self, state, start):
         """
         Calculate priority key for a state.
+        
+        Args:
+            state: State (x, y)
+            start: Start state (x, y)
+            
+        Returns:
+            List of two values: [key1, key2]
         """
-        if self.g[s] > self.rhs[s]:
-            return [self.rhs[s] + self._heuristic(start, s) + self.k_m, self.rhs[s]]
+        
+        if self.cost_to_go[state] > self.right_hand_side[state]:
+            return [self.right_hand_side[state] + self._heuristic(start, state) + self.accumylated_cost_changes, self.right_hand_side[state]]
         else:
-            return [self.g[s] + self._heuristic(start, s) + self.k_m, self.g[s]]
+            return [self.cost_to_go[state] + self._heuristic(start, state) + self.accumylated_cost_changes, self.cost_to_go[state]]
     
-    def _update_vertex(self, u, start):
+    def update_vertex(self, update_state, start):
         """
-        Update the vertex u in the priority queue.
+        Update the vertex update_state in the priority queue.
+        
+        Args:
+            update_state: State (x, y)
+            start: Start state (x, y)
         """
-        if u != self.goal:
-            # Update rhs based on successors
+        
+        if update_state != self.goal:
             min_cost = float('inf')
-            for s_next in self._get_neighbors(u):
-                cost = self._get_cost(u, s_next)
-                if cost + self.g[s_next] < min_cost:
-                    min_cost = cost + self.g[s_next]
-            self.rhs[u] = min_cost
+            for s_next in self.get_neighbors(update_state):
+                cost = self.get_cost(update_state, s_next)
+                if cost + self.cost_to_go[s_next] < min_cost:
+                    min_cost = cost + self.cost_to_go[s_next]
+            self.right_hand_side[update_state] = min_cost
         
         # Remove u from U if it exists
-        for i, (_, state) in enumerate(self.U):
-            if state == u:
-                self.U.pop(i)
+        for i, (_, state) in enumerate(self.update_priority_queue):
+            if state == update_state:
+                self.update_priority_queue.pop(i)
                 break
         
         # If g and rhs are inconsistent, add u to U
-        if self.g[u] != self.rhs[u]:
-            heapq.heappush(self.U, (self._calculate_key(u, start), u))
+        if self.cost_to_go[update_state] != self.right_hand_side[update_state]:
+            heapq.heappush(self.update_priority_queue, (self.calculate_key(update_state, start), update_state))
         
-    def _compute_shortest_path(self, start):
+    def compute_shortest_path(self, start):
         """
         Compute the shortest path from start to goal using D* Lite.
+        
+        Args:
+            start: Start state (x, y)
+
         """
-        while (len(self.U) > 0 and 
-            (self.U[0][0] < self._calculate_key(start, start) or 
-                self.rhs[start] > self.g[start])):
-            k_old, u = heapq.heappop(self.U)
-            k_new = self._calculate_key(u, start)
+        while (len(self.update_priority_queue) > 0 and 
+            (self.update_priority_queue[0][0] < self.calculate_key(start, start) or 
+                self.right_hand_side[start] > self.cost_to_go[start])):
+            k_old, u = heapq.heappop(self.update_priority_queue)
+            k_new = self.calculate_key(u, start)
             
             if k_old < k_new:
-                heapq.heappush(self.U, (k_new, u))
-            elif self.g[u] > self.rhs[u]:
-                self.g[u] = self.rhs[u]
-                for s_prev in self._get_predecessors(u):
-                    self._update_vertex(s_prev, start)
+                heapq.heappush(self.update_priority_queue, (k_new, u))
+            elif self.cost_to_go[u] > self.right_hand_side[u]:
+                self.cost_to_go[u] = self.right_hand_side[u]
+                for s_prev in self.get_predecessors(u):
+                    self.update_vertex(s_prev, start)
             else:
-                self.g[u] = float('inf')
-                self._update_vertex(u, start)
-                for s_prev in self._get_predecessors(u):
-                    self._update_vertex(s_prev, start)
+                self.cost_to_go[u] = float('inf')
+                self.update_vertex(u, start)
+                for s_prev in self.get_predecessors(u):
+                    self.update_vertex(s_prev, start)
         
-    def _get_neighbors(self, s):
+    def get_neighbors(self, state):
         """
-        Get valid neighboring states for state s.
+        Get valid neighboring states for state.
+        
+        Args:
+            state: State (x, y)
+            
+        Returns:
+            neighbors: List of neighboring states
         """
         directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # Up, Right, Down, Left
         neighbors = []
         
         for dx, dy in directions:
-            nx, ny = s.x + dx, s.y + dy
+            nx, ny = state.x + dx, state.y + dy
             
             # Check if within map bounds
             if 0 <= nx < GameConstants.MAP_SIZE and 0 <= ny < GameConstants.MAP_SIZE:
@@ -605,26 +621,39 @@ class DStarLitePlanner:
         
         return neighbors
         
-    def _get_predecessors(self, s):
+    def get_predecessors(self, state):
         """
-        Get valid predecessors of state s (same as neighbors for grid-based maps).
+        Get valid predecessors of state (same as neighbors for grid-based maps).
+        
+        Args:
+            state: State (x, y)
+            
+        Returns:
+            List of predecessor states
         """
-        return self._get_neighbors(s)
+        return self.get_neighbors(state)
     
-    def _get_cost(self, s1, s2):
+    def get_cost(self, state1, state2):
         """
-        Get cost of moving from s1 to s2.
+        Get cost of moving from state1 to state2.
         Adjacent movement cost based on the cost map.
+        
+        Args:
+            state1: First state (x, y)
+            state2: Second state (x, y)
+            
+        Returns:
+            base_cost: Cost of moving from state1 to state2
         """
         # Check if adjacent
-        if abs(s1.x - s2.x) + abs(s1.y - s2.y) != 1:
+        if abs(state1.x - state2.x) + abs(state1.y - state2.y) != 1:
             return float('inf')
         
         # Base cost - unit_move_cost or higher if in nebula
-        base_cost = self.cost_map[s2.y][s2.x]
+        base_cost = self.cost_map[state2.y][state2.x]
         
         # Check for dynamic obstacles (other units)
-        if (s2.x, s2.y) in self.dynamic_obstacles:
+        if (state2.x, state2.y) in self.dynamic_obstacles:
             return float('inf')
         
         return base_cost
@@ -632,7 +661,11 @@ class DStarLitePlanner:
     def update_cost_map(self, obs):
         """
         Update the cost map based on the current observation.
+        
+        Args:
+            obs: Observation from the environment
         """
+        
         # Initialize cost map with base move cost
         move_cost = obs["env_cfg_unit_move_cost"][0]
         width, height = GameConstants.MAP_WIDTH, GameConstants.MAP_HEIGHT
@@ -675,39 +708,48 @@ class DStarLitePlanner:
     def initialize_search(self, start, goal):
         """
         Initialize D* Lite search from goal to start.
+        
+        Args:
+            start: Start position (x, y)
+            goal: Goal position (x, y)
         """
         # Clear previous search
-        self.U = []
-        self.rhs = defaultdict(lambda: float('inf'))
-        self.g = defaultdict(lambda: float('inf'))
+        self.update_priority_queue = []
+        self.right_hand_side = defaultdict(lambda: float('inf'))
+        self.cost_to_go = defaultdict(lambda: float('inf'))
         
         self.start = State(start[0], start[1])
         self.goal = State(goal[0], goal[1])
         
         # Initialize search from goal (D* Lite works backward)
-        self.rhs[self.goal] = 0
-        heapq.heappush(self.U, (self._calculate_key(self.goal, self.start), self.goal))
+        self.right_hand_side[self.goal] = 0
+        heapq.heappush(self.update_priority_queue, (self.calculate_key(self.goal, self.start), self.goal))
         
         # Compute initial path
-        self._compute_shortest_path(self.start)
+        self.compute_shortest_path(self.start)
         
     def get_next_action(self, current_pos):
         """
         Get the next action along the path.
-        Returns action code (0=stay, 1=up, 2=right, 3=down, 4=left)
+        
+        Args:
+            current_pos: Current position (x, y)
+            
+        Returns:
+            Action integer (0-4) corresponding to the move direction
         """
         current = State(current_pos[0], current_pos[1])
         
         # If we've reached the goal or no path exists
-        if current == self.goal or self.g[current] == float('inf'):
+        if current == self.goal or self.cost_to_go[current] == float('inf'):
             return 0  # Stay in place
         
         # Find the best neighbor with lowest g-value
         best_neighbor = None
         min_cost = float('inf')
         
-        for neighbor in self._get_neighbors(current):
-            cost = self._get_cost(current, neighbor) + self.g[neighbor]
+        for neighbor in self.get_neighbors(current):
+            cost = self.get_cost(current, neighbor) + self.cost_to_go[neighbor]
             if cost < min_cost:
                 min_cost = cost
                 best_neighbor = neighbor
@@ -737,6 +779,13 @@ class DStarLitePlanner:
         Find targets for units based on the current observation.
         Similar to your StaticPathPlanner's implementation but with
         consideration for dynamic obstacles.
+        
+        Args:
+            obs: Observation from the environment
+            player_id: ID of the player
+            
+        Returns:
+            targets: Dictionary mapping unit indices to target positions
         """
         targets = {}
         
@@ -839,35 +888,17 @@ class DStarLitePlanner:
         
         return targets
         
-    def compute_paths_for_all_units(self, obs, player_id, targets):
-        """
-        Compute paths for all units to their targets.
-        """
-        # Update cost map based on current observation
-        self.update_cost_map(obs)
-        
-        # Store targets
-        self.targets = targets
-        
-        # Compute path for each unit
-        for unit_idx, target in targets.items():
-            if obs["units_mask"][0][unit_idx] > 0:  # If unit exists
-                unit_pos = tuple(obs["units_position"][0][unit_idx])
-                
-                # Initialize search
-                self.initialize_search(unit_pos, target)
-                
-                # Store path (D* Lite doesn't explicitly store paths)
-                # The path is computed on-the-fly when get_next_action is called
-                self.paths[unit_idx] = {
-                    'start': unit_pos,
-                    'goal': target,
-                    'last_pos': unit_pos,
-                }
-        
     def replan_path(self, unit_idx, obs, player_id, current_pos=None, goal_pos=None):
         """
         Replan a path for a unit when obstacles are detected.
+        
+        Args:
+            unit_idx: Index of the unit
+            obs: Observation from the environment
+            player_id: ID of the player
+            current_pos: Current position of the unit (optional)
+            goal_pos: Goal position for the unit (optional)
+
         """
         # Update the cost map
         self.update_cost_map(obs)
@@ -898,11 +929,11 @@ class DStarLitePlanner:
         else:
             # Update k_m for changed edge costs
             current = State(current_pos[0], current_pos[1])
-            self.k_m += self._heuristic(self.paths[unit_idx]['last_pos'], current)
+            self.accumylated_cost_changes += self._heuristic(self.paths[unit_idx]['last_pos'], current)
             
             # Reinitialize search from current position
             self.start = current
-            self._compute_shortest_path(self.start)
+            self.compute_shortest_path(self.start)
             
             # Update path info
             self.paths[unit_idx]['start'] = current_pos
@@ -911,9 +942,16 @@ class DStarLitePlanner:
     def get_next_actions(self, obs, player_id):
         """
         Get the next action for each unit based on its path.
-        Returns a list of actions (0-4) for each unit.
+        
+        Args:
+            obs: Observation from the environment
+            player_id: ID of the player
+            
+        Returns:
+            actions: List of actions for each unit
         """
         actions = []
+        player_idx = 0 if player_id == "player_0" else 1
         
         # Update cost map based on current observation
         self.update_cost_map(obs)
@@ -921,7 +959,7 @@ class DStarLitePlanner:
         # Get next action for each unit
         for i in range(GameConstants.MAX_UNITS):
             if obs["units_mask"][0][i] > 0:  # If unit exists
-                current_pos = tuple(obs["units_position"][0][i])
+                current_pos = tuple(obs["units_position"][player_idx][i])
                 
                 # Check if we need to replan
                 if i in self.paths:
@@ -959,6 +997,15 @@ class DStarLitePlanner:
     def detect_collision_risk(self, obs, unit_idx, next_pos, look_ahead_steps=1):
         """
         Detect if there's a collision risk with enemy units if the unit moves to next_pos.
+        
+        Args:
+            obs: Observation from the environment
+            unit_idx: Index of the unit
+            next_pos: Next position (x, y) to check for collision
+            look_ahead_steps: Number of steps to look ahead for collision prediction
+            
+        Returns:
+            bool: True if collision risk is detected, False otherwise
         """
         if not obs["units_mask"][0][unit_idx]:
             return False  # Unit doesn't exist
@@ -987,4 +1034,3 @@ class DStarLitePlanner:
             pass
         
         return False
-

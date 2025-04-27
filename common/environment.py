@@ -2,8 +2,9 @@ from enum import Enum
 import numpy as np
 import random
 
+
 class GameConstants:
-    """Stores only static game constants"""
+    """ Game constants for the Lux AI Season 3 environment. """
 
     # Map
     MAP_WIDTH = 24
@@ -28,6 +29,13 @@ class GameConstants:
     MAX_RELIC_NODES = 6
     RELIC_CONFIG_SIZE = 5
 
+    # Default values
+    DEFUALT_UNIT_MOVE_COST = 6
+    DEFAULT_UNIT_SAP_COST = 51
+    DEFAULT_UNIT_SAP_RANGE = 3
+    DEFAULT_UNIT_SENSOR_RANGE = 1
+    DEFAULT_NEBULA_TILE_VISION_REDUCTION = 8
+    DEFAULT_NEBULA_TILE_ENERGY_REDUCTION = 25
 
 class ActionType(Enum):
     """Represents valid unit actions in the Lux AI Season 3 game."""
@@ -38,6 +46,7 @@ class ActionType(Enum):
     MOVE_DOWN = 3  # Move south (y+1)
     MOVE_LEFT = 4  # Move west (x-1)
     SAP = 5  # Sap a target tile (requires x, y offsets)
+    REPLAN = 6  # Replan the path for the unit in MAPPO
 
     def to_direction(self):
         return {
